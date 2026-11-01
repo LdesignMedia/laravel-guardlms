@@ -3,7 +3,7 @@
 First-party Laravel inventory connector, following the GuardLMS Moodle/WordPress
 push model. Reports the running Laravel and PHP versions, PHP extensions, OS
 family/architecture, and exact installed Composer dependencies. Requires PHP 8.2+
-and Laravel 11 or 12. This release covers inventory; browser analytics, server
+and Laravel 12. This release covers inventory; browser analytics, server
 error tracking and the browser consent-code onboarding flow are not included.
 
 ## Install
@@ -102,6 +102,6 @@ composer test
 composer validate --strict
 ```
 
-CI tests PHP 8.2 with Laravel 11/12 and PHP 8.4 with Laravel 12.
+CI tests Laravel 12 on PHP 8.2 and 8.4.
 
 MIT licensed. Maintained by LdesignMedia.
