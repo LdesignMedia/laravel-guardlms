@@ -8,14 +8,12 @@ error tracking and the browser consent-code onboarding flow are not included.
 
 ## Install
 
-Until registered on Packagist, add the public GitHub repository to your app:
+Install from [Packagist](https://packagist.org/packages/guardlms/laravel):
 
 ```sh
-composer config repositories.guardlms vcs https://github.com/LdesignMedia/laravel-guardlms
 composer require guardlms/laravel:^0.1
 ```
 
-Once the repository is registered on Packagist, only `composer require` is needed.
 Laravel discovers the service provider and Artisan command automatically.
 
 Register the application's canonical HTTPS URL in GuardLMS and create a
