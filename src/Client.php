@@ -19,8 +19,12 @@ class Client
             || parse_url($url, PHP_URL_FRAGMENT) !== null) {
             throw new RuntimeException('Configure a GuardLMS HTTPS API URL and website-bound inventory API key.');
         }
-        $response = $this->http->withToken($key)->acceptJson()->asJson()
-            ->connectTimeout(5)->timeout(30)->withOptions(['allow_redirects' => false])
+        $request = $this->http->withToken($key)->acceptJson()->asJson();
+        $verify = $request->getOptions()['verify'] ?? true;
+        // Preserve a host-provided CA bundle, but never inherit disabled verification.
+        $verify = is_string($verify) && trim($verify) !== '' ? $verify : true;
+        $response = $request->connectTimeout(5)->timeout(30)
+            ->withOptions(['allow_redirects' => false, 'verify' => $verify])
             ->post($url.'/api/externalpush/laravel', $payload);
         if (! $response->successful()) {
             // Never print request headers, credentials, or a server's arbitrary response body.
