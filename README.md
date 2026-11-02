@@ -28,7 +28,7 @@ scheduler keep your website's technology inventory up to date.
 Dependency names from `composer.lock` are checked against Composer's installed
 runtime metadata. Packages absent from `vendor`, including dev dependencies after
 `composer install --no-dev`, are excluded. GuardLMS receives structured inventory;
-raw lockfiles, repository credentials and application configuration are not sent.
+raw lockfiles, repository credentials and application secrets are not sent.
 
 ## Requirements
 
@@ -65,7 +65,8 @@ Next, create the connection in GuardLMS and configure the returned inventory key
 4. Open the website and note its numeric ID in the address bar. For `/websites/123`, the website ID is `123`.
 
 Use a separate website and inventory key for each production, staging or
-development environment. The registered URL must match the URL Laravel reports,
+development environment. Use a URL without credentials, query parameters or a fragment. The registered URL
+must match the URL Laravel reports,
 including its scheme, hostname and any application subdirectory.
 
 ### 2. Create a temporary setup key
@@ -284,8 +285,18 @@ dependency set, so removed packages disappear, and ignores older snapshots.
 
 The package sends software inventory rather than application records. It does
 not send raw lockfiles, repository URLs, source references, environment dumps,
-application configuration, hostnames or user data. Up to **2,000 dependencies**
-are supported, with package names up to **120 characters**.
+application secrets, the server hostname or user records. The registered website
+URL (including its hostname) and configured web server signature are included. Up to **2,000 dependencies**
+are supported, with package names up to **120 characters**. Local JSON inputs must
+be regular files: `composer.lock` is limited to **16 MiB** and the optional outdated
+report to **2 MiB**, **2,000 rows**, and version strings up to **100 characters**.
+Duplicate update entries are collapsed. Oversized or malformed files fail collection
+before any inventory is sent. PHP stream-wrapper URLs are not accepted as file paths.
+
+TLS certificate verification stays enabled even when a host application sets the
+HTTP client’s global `verify` option to `false`. A configured custom CA-bundle path
+is preserved. As with other Laravel packages, application-owned HTTP middleware
+and custom handlers remain under the host application’s control.
 
 ## Development
 

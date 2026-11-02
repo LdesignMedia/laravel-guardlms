@@ -6,6 +6,7 @@ use Composer\InstalledVersions;
 use GuardLms\Laravel\Client;
 use GuardLms\Laravel\GuardLmsServiceProvider;
 use GuardLms\Laravel\Inventory;
+use GuardLms\Laravel\JsonFileReader;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory;
@@ -136,6 +137,124 @@ class PackageTest extends TestCase
             $this->assertStringNotContainsString('private-response', $e->getMessage());
         }
         $http->assertSentCount(1);
+    }
+
+    public function test_tls_and_redirect_policy_override_insecure_host_defaults(): void
+    {
+        $http = $this->app->make(Factory::class);
+        $http->globalOptions(['verify' => false, 'allow_redirects' => true]);
+        $options = [];
+        $http->fake(function ($request, $requestOptions) use ($http, &$options) {
+            $options = $requestOptions;
+
+            return $http->response([], 200);
+        });
+        $this->app->make(Client::class)->push([]);
+        $this->assertTrue($options['verify']);
+        $this->assertFalse($options['allow_redirects']);
+    }
+
+    public function test_custom_ca_bundle_is_preserved(): void
+    {
+        $http = $this->app->make(Factory::class);
+        $http->globalOptions(['verify' => '/trusted/custom-ca.pem']);
+        $options = [];
+        $http->fake(function ($request, $requestOptions) use ($http, &$options) {
+            $options = $requestOptions;
+
+            return $http->response([], 200);
+        });
+        $this->app->make(Client::class)->push([]);
+        $this->assertSame('/trusted/custom-ca.pem', $options['verify']);
+    }
+
+    public function test_site_url_rejects_credentials_query_and_fragment(): void
+    {
+        $inventory = $this->inventory();
+        foreach (['https://user:password@example.com', 'https://example.com?secret=value', 'https://example.com#secret'] as $url) {
+            config(['guardlms.site_url' => $url]);
+            try {
+                $inventory->collect();
+                $this->fail('Expected site URL rejection');
+            } catch (RuntimeException $e) {
+                $this->assertStringNotContainsString('password', $e->getMessage());
+                $this->assertStringNotContainsString('secret', $e->getMessage());
+            }
+        }
+    }
+
+    public function test_json_reader_rejects_oversized_files_before_decoding(): void
+    {
+        $path = $this->directory.'/large.json';
+        file_put_contents($path, str_repeat('x', 65));
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('size limit');
+        (new JsonFileReader)->read($path, 64);
+    }
+
+    public function test_json_reader_rejects_stream_wrappers_and_non_files(): void
+    {
+        foreach (['php://memory', 'data://text/plain,{}', 'file:///etc/passwd', $this->directory] as $path) {
+            try {
+                (new JsonFileReader)->read($path, 1024);
+                $this->fail('Expected local regular file requirement');
+            } catch (RuntimeException $e) {
+                $this->assertNotSame('', $e->getMessage());
+            }
+        }
+    }
+
+    public function test_json_reader_limits_nesting_depth(): void
+    {
+        $path = $this->directory.'/deep.json';
+        file_put_contents($path, str_repeat('{"nested":', 65).'null'.str_repeat('}', 65));
+        $this->expectException(\JsonException::class);
+        (new JsonFileReader)->read($path, 4096);
+    }
+
+    public function test_updates_are_deduplicated_and_unsafe_targets_are_omitted(): void
+    {
+        $inventory = $this->inventory();
+        $path = $this->directory.'/outdated.json';
+        $rows = [];
+        foreach (['', str_repeat('v', 101), "1.2.0\n", '1.2.0', '1.3.0'] as $latest) {
+            $rows[] = ['name' => 'vendor/runtime', 'version' => '1.1.0', 'latest' => $latest];
+        }
+        file_put_contents($path, json_encode(['installed' => $rows]));
+        config(['guardlms.outdated_file' => $path]);
+        $this->assertSame([['name' => 'vendor/runtime', 'version' => '1.1.0', 'latest' => '1.2.0']], $inventory->collect()['laravel']['updates']);
+    }
+
+    public function test_oversized_report_entry_count_is_rejected(): void
+    {
+        $inventory = $this->inventory();
+        $path = $this->directory.'/outdated.json';
+        file_put_contents($path, json_encode(['installed' => array_fill(0, 2001, ['name' => 'vendor/runtime', 'version' => '1.1.0', 'latest' => '1.2.0'])]));
+        config(['guardlms.outdated_file' => $path]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('2000 entries');
+        $inventory->collect();
+    }
+
+    public function test_malformed_lockfile_entries_fail_collection(): void
+    {
+        $inventory = $this->inventory();
+        file_put_contents($this->directory.'/composer.lock', json_encode(['packages' => [['name' => ['invalid']]]]));
+        $this->expectException(RuntimeException::class);
+        $inventory->collect();
+    }
+
+    public function test_cli_failure_does_not_expose_http_exception_details(): void
+    {
+        $this->app->instance(Inventory::class, Mockery::mock(Inventory::class, function ($mock) {
+            $mock->shouldReceive('collect')->once()->andReturn([]);
+        }));
+        $http = $this->app->make(Factory::class);
+        $http->fake(fn () => throw new RuntimeException('Authorization: Bearer secret-test-key'));
+        $this->artisan('guardlms:push')
+            ->expectsOutput('GuardLMS inventory push failed. Check configuration, connectivity and the outdated report.')
+            ->doesntExpectOutputToContain('secret-test-key')
+            ->assertExitCode(1);
     }
 
     public function test_schedule_is_opt_in(): void
